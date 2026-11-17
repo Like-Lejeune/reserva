@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 16mm 14mm 18mm;
+          @bottom-left { content: "{{ project.name }} — {{ title }}"; font-size: 8pt; color: #666; }
+          @bottom-right { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #666; } }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 9.5pt; color: #1a1a1a; }
+  .org { display: flex; gap: 4mm; align-items: center; border-bottom: 0.5mm solid #1f3a5f; padding-bottom: 3mm; margin-bottom: 5mm; font-size: 8.5pt; color: #444; }
+  .org img { height: 16mm; max-width: 40mm; object-fit: contain; }
+  .org-name { font-size: 12pt; font-weight: bold; color: #1f3a5f; }
+  h1 { font-size: 18pt; margin: 0 0 2mm; }
+  h2 { font-size: 12pt; margin: 7mm 0 2mm; padding: 1.5mm 2.5mm; background: #1f3a5f; color: #fff; }
+  .meta { color: #444; margin-bottom: 4mm; }
+  .meta b { color: #1a1a1a; }
+  .kpis { display: flex; gap: 3mm; margin: 4mm 0; }
+  .kpi { flex: 1; border: 0.3mm solid #ccc; padding: 2mm; text-align: center; }
+  .kpi .n { font-size: 15pt; font-weight: bold; }
+  .item { border: 0.3mm solid #ccc; padding: 2.5mm; margin-bottom: 2.5mm; page-break-inside: avoid; }
+  .head { display: flex; justify-content: space-between; margin-bottom: 1mm; }
+  .num { font-weight: bold; }
+  .tag { font-size: 8pt; padding: 0.5mm 2mm; border-radius: 1mm; border: 0.3mm solid #999; margin-left: 1mm; }
+  .bloquante { background: #b3261e; color: #fff; border-color: #b3261e; }
+  .majeure { background: #f4c26b; border-color: #c98a1a; }
+  .levee { background: #2e7d32; color: #fff; border-color: #2e7d32; }
+  .action { margin-top: 1mm; }
+  .photos { display: flex; gap: 2mm; margin-top: 2mm; }
+  .photos figure { margin: 0; width: 42mm; }
+  .photos img { width: 42mm; height: 32mm; object-fit: cover; border: 0.2mm solid #999; }
+  .photos figcaption { font-size: 7.5pt; color: #555; }
+  .made { margin-top: 8mm; font-size: 8pt; color: #666; }
+  .sign { display: flex; gap: 10mm; margin-top: 12mm; page-break-inside: avoid; }
+  .sign div { flex: 1; border-top: 0.3mm solid #333; padding-top: 1.5mm; height: 22mm; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+  {% if org %}
+  <div class="org">
+    {% if logo %}<img src="{{ logo }}">{% endif %}
+    <div>
+      <div class="org-name">{{ org.name }}</div>
+      {% if org.registration_no %}<div>N° d'inscription : {{ org.registration_no }}</div>{% endif %}
+      {% if org.address %}<div>{{ org.address }}</div>{% endif %}
+      <div>{% if org.phone %}Tél. {{ org.phone }}{% endif %}{% if org.phone and org.email %} · {% endif %}{{ org.email }}</div>
+    </div>
+  </div>
+  {% endif %}
+  <h1>{{ title }}</h1>
+  <div class="meta">
+    Chantier : <b>{{ project.name }}</b>{% if project.location %} — {{ project.location }}{% endif %}<br>
+    {% if project.client %}Maître d'ouvrage : <b>{{ project.client }}</b><br>{% endif %}
+    Édité le {{ today }} — {{ total }} réserve(s)
+  </div>
+  <div class="kpis">
+    {% for key, label in STATUSES.items() %}
+    <div class="kpi"><div class="n">{{ counts[key] }}</div>{{ label }}</div>
+    {% endfor %}
+  </div>
+
+  {% for lot, items in groups %}
+  <h2>{{ lot }} — {{ items|length }} réserve(s)</h2>
+  {% for it in items %}
+  <div class="item">
+    <div class="head">
+      <span><span class="num">N° {{ it.r.number }}</span>{% if it.r.location %} · {{ it.r.location }}{% endif %}{% if it.company %} · {{ it.company }}{% endif %}</span>
+      <span>
+        <span class="tag {{ it.r.severity }}">{{ SEVERITIES[it.r.severity] }}</span>
+        <span class="tag {{ it.r.status }}">{{ STATUSES[it.r.status] }}</span>
+      </span>
+    </div>
+    <div>{{ it.r.description }}</div>
+    {% if it.r.action %}<div class="action"><b>À faire :</b> {{ it.r.action }}</div>{% endif %}
+    {% if it.r.due_date %}<div class="action"><b>Délai :</b> {{ it.r.due_date.strftime("%d/%m/%Y") }}</div>{% endif %}
+    {% if it.avant or it.apres %}
+    <div class="photos">
+      {% for src in it.avant %}<figure><img src="{{ src }}"><figcaption>Avant</figcaption></figure>{% endfor %}
+      {% for src in it.apres %}<figure><img src="{{ src }}"><figcaption>Après</figcaption></figure>{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endfor %}
+
+  {% if not org %}<p class="made">Rapport réalisé avec Reserva.</p>{% endif %}
+  <div class="sign">
+    <div>Le maître d'œuvre / l'ingénieur</div>
+    <div>L'entreprise</div>
+    <div>Le maître d'ouvrage</div>
+  </div>
+</body>
+</html>

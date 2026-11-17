@@ -1,0 +1,26 @@
+# Secrets et données : jamais dans le dépôt
+.env
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.egg-info/
+
+# Web
+node_modules/
+web/dist/
+
+# Flutter
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins*
+mobile/android/local.properties
+mobile/android/key.properties
+*.jks
+*.keystore
