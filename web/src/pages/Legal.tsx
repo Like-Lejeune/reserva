@@ -81,7 +81,7 @@ export function Legal({ doc }: { doc: "cgu" | "confidentialite" }) {
   return (
     <div className="site">
       <nav className="site-nav">
-        <a href="#/" className="brand"><img src="/icon.svg" alt="" />{BRAND}</a>
+        <a href="#/" className="brand"><img src="/logo.svg" alt={BRAND} className="wordmark" /></a>
         <div className="site-links">
           <button className="link" onClick={() => go(terms ? "/confidentialite" : "/cgu")}>{terms ? "Confidentialité" : "Conditions d'utilisation"}</button>
         </div>

@@ -2,10 +2,10 @@
 // - Pages : réseau d'abord, copie locale si hors ligne.
 // - Fichiers de l'application (/assets, icônes) : copie locale d'abord.
 // - /api : jamais mis en cache ici (les données vivent dans IndexedDB).
-const CACHE = "reserva-v1";
+const CACHE = "reserva-v2";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(["/", "/icon.svg", "/manifest.webmanifest"])));
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(["/", "/icon.svg", "/logo.svg", "/icon-192.png", "/manifest.webmanifest"])));
   self.skipWaiting();
 });
 

@@ -10,6 +10,9 @@ from app.models import Media, Organization, Project, Reserve, Subscription, User
 
 MB = 1024 * 1024
 
+# Repères de prix (novembre 2026) : PlanRadar à partir de 26 € (17 000 FCFA) par utilisateur et par
+# mois, Fieldwire à partir de 39 $ (23 000 FCFA), Archireport 39 € (25 600 FCFA). Les offres ci-dessous
+# sont fixes par espace et non par utilisateur, et restent 3 à 5 fois moins chères.
 PLANS: dict[str, dict] = {
     "gratuit": {
         "label": "Gratuit",
@@ -18,31 +21,63 @@ PLANS: dict[str, dict] = {
         "storage_mb": 100,
         "max_reports": 3,
         "max_members": 1,
-        "features": ["3 rapports", "100 Mo de photos (environ 400 photos)", "PDF et partage WhatsApp",
+        "ai_credit_month_fcfa": 0,  # 500 FCFA offerts une fois, à l'inscription
+        "features": ["3 rapports", "100 Mo de photos, environ 400", "PDF partagé par WhatsApp",
                      "Fonctionne sans connexion", "500 FCFA de crédit IA offerts"],
     },
     "pro": {
         "label": "Pro",
         "price_fcfa": 5000,
-        "tagline": "Pour l'indépendant qui en fait son outil de travail",
+        "tagline": "Pour le technicien ou l'ingénieur indépendant",
         "storage_mb": 5 * 1024,
         "max_reports": None,
         "max_members": 1,
+        "ai_credit_month_fcfa": 500,
+        "recommended": True,
         "features": ["Rapports illimités", "5 Go de photos", "Votre logo et vos coordonnées sur le PDF",
-                     "Envoi des défauts à chaque artisan", "Crédit IA rechargeable par Mobile Money"],
+                     "Envoi des défauts à chaque artisan", "500 FCFA de crédit IA chaque mois"],
     },
     "equipe": {
         "label": "Équipe",
         "price_fcfa": 15000,
-        "tagline": "Pour les cabinets et les entreprises",
+        "tagline": "Pour le cabinet ou le bureau d'études",
         "storage_mb": 25 * 1024,
         "max_reports": None,
-        "max_members": 10,
-        "features": ["Tout ce qu'il y a dans Pro", "Jusqu'à 10 membres", "25 Go de photos partagés",
-                     "Rôles : technicien, ingénieur, lecteur", "L'ingénieur valide les corrections"],
+        "max_members": 5,
+        "ai_credit_month_fcfa": 2000,
+        "features": ["Tout ce qu'il y a dans Pro", "Jusqu'à 5 membres", "25 Go de photos partagés",
+                     "L'ingénieur valide chaque correction", "2 000 FCFA de crédit IA chaque mois"],
+    },
+    "entreprise": {
+        "label": "Entreprise",
+        "price_fcfa": 40000,
+        "tagline": "Pour l'entreprise de construction ou le promoteur",
+        "storage_mb": 100 * 1024,
+        "max_reports": None,
+        "max_members": 20,
+        "ai_credit_month_fcfa": 5000,
+        "features": ["Tout ce qu'il y a dans Équipe", "Jusqu'à 20 membres", "100 Go de photos partagés",
+                     "Prise en main de votre équipe", "5 000 FCFA de crédit IA chaque mois"],
     },
 }
 
+# Ce que chaque offre comprend, fonction par fonction : le tableau comparatif de la vitrine.
+# True / False s'affichent en coche ou en tiret ; un texte s'affiche tel quel.
+COMPARISON: list[tuple[str, dict[str, object]]] = [
+    ("Rapports", {"gratuit": "3", "pro": "Illimités", "equipe": "Illimités", "entreprise": "Illimités"}),
+    ("Photos stockées", {"gratuit": "100 Mo", "pro": "5 Go", "equipe": "25 Go", "entreprise": "100 Go"}),
+    ("Utilisateurs", {"gratuit": "1", "pro": "1", "equipe": "5", "entreprise": "20"}),
+    ("Application web et mobile, sans connexion", {"gratuit": True, "pro": True, "equipe": True, "entreprise": True}),
+    ("Dictée vocale et classement automatique", {"gratuit": True, "pro": True, "equipe": True, "entreprise": True}),
+    ("Rapport PDF partagé par WhatsApp", {"gratuit": True, "pro": True, "equipe": True, "entreprise": True}),
+    ("Votre logo et vos coordonnées sur le PDF", {"gratuit": False, "pro": True, "equipe": True, "entreprise": True}),
+    ("Envoi des défauts à chaque artisan", {"gratuit": False, "pro": True, "equipe": True, "entreprise": True}),
+    ("Rôles et validation par l'ingénieur", {"gratuit": False, "pro": False, "equipe": True, "entreprise": True}),
+    ("Crédit IA inclus", {"gratuit": "500 FCFA à l'inscription", "pro": "500 FCFA par mois",
+                          "equipe": "2 000 FCFA par mois", "entreprise": "5 000 FCFA par mois"}),
+    ("Assistance", {"gratuit": "Questions fréquentes", "pro": "WhatsApp", "equipe": "WhatsApp prioritaire",
+                    "entreprise": "Interlocuteur dédié"}),
+]
 
 # Abonnement annuel : 12 mois pour le prix de 10. Les offres payantes ouvrent le PDF à l'en-tête
 # du client (logo, coordonnées) et l'envoi des défauts à chaque artisan.
@@ -71,7 +106,7 @@ def plan_of(org: Organization) -> dict:
 
 
 def public_plans() -> list[dict]:
-    return [{"key": key, **plan} for key, plan in PLANS.items()]
+    return [{"key": key, **plan, "details": {label: row[key] for label, row in COMPARISON}} for key, plan in PLANS.items()]
 
 
 def storage_used(db: Session, org_id: str) -> int:

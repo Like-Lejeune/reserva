@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { go } from "../lib/nav";
-import { BRAND, TRUSTED } from "../lib/site";
+import { BRAND, TRUSTED, contactLink } from "../lib/site";
 import { fcfa, type Plan } from "../lib/types";
 
 const STEPS = [
@@ -35,7 +35,7 @@ export function Landing() {
   return (
     <div className="site">
       <nav className="site-nav">
-        <a href="#/" className="brand"><img src="/icon.svg" alt="" />{BRAND}</a>
+        <a href="#/" className="brand"><img src="/logo.svg" alt={BRAND} className="wordmark" /></a>
         <div className="site-links">
           <a href="#pour-qui" onClick={(e) => scrollTo(e, "pour-qui")}>Pour qui</a>
           <a href="#offres" onClick={(e) => scrollTo(e, "offres")}>Offres</a>
@@ -82,21 +82,53 @@ export function Landing() {
           <h2>Des offres simples</h2>
           <p className="lead">Commencez gratuitement, essayez Pro 14 jours sans payer. Paiement par Mobile Money, au mois ou à l'année avec 2 mois offerts.</p>
           <div className="plans">
-            {plans.map((p) => (
-              <article key={p.key} className={p.key === "pro" ? "plan featured" : "plan"}>
-                <h3>{p.label}</h3>
-                <p className="price">
-                  {p.price_fcfa === 0 ? "0 FCFA" : fcfa(p.price_fcfa)}
-                  {p.price_fcfa > 0 && <small> par mois</small>}
-                </p>
-                <p className="muted">{p.tagline}</p>
-                <ul>{p.features.map((f) => <li key={f}>{f}</li>)}</ul>
-                <button className={p.key === "pro" ? "btn primary" : "btn"} onClick={start}>
-                  {p.price_fcfa === 0 ? "Commencer gratuitement" : `Essayer puis passer à ${p.label}`}
-                </button>
-              </article>
-            ))}
+            {plans.map((p) => {
+              const contact = p.key === "entreprise" ? contactLink(`Bonjour, l'offre Entreprise de ${BRAND} m'intéresse.`) : "";
+              return (
+                <article key={p.key} className={p.recommended ? "plan featured" : "plan"}>
+                  {p.recommended && <span className="badge">Recommandé</span>}
+                  <h3>{p.label}</h3>
+                  <p className="price">{p.price_fcfa === 0 ? "0 FCFA" : fcfa(p.price_fcfa)}</p>
+                  <p className="muted small">{p.price_fcfa > 0 ? `par mois, ou ${fcfa(p.price_year_fcfa ?? p.price_fcfa * 10)} par an` : "Sans limite de durée"}</p>
+                  <p className="muted">{p.tagline}</p>
+                  <ul>{p.features.map((f) => <li key={f}>{f}</li>)}</ul>
+                  {contact ? (
+                    <a className="btn" href={contact}>Nous contacter</a>
+                  ) : (
+                    <button className={p.recommended ? "btn primary" : "btn"} onClick={start}>
+                      {p.price_fcfa === 0 ? "Commencer" : "Essayer 14 jours"}
+                    </button>
+                  )}
+                </article>
+              );
+            })}
           </div>
+          {plans[0]?.details && (
+            <div className="compare-wrap">
+              <table className="compare">
+                <caption>Ce que comprend chaque offre</caption>
+                <thead>
+                  <tr><th scope="col"><span className="sr">Fonction</span></th>{plans.map((p) => <th key={p.key} scope="col">{p.label}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {Object.keys(plans[0].details).map((row) => (
+                    <tr key={row}>
+                      <th scope="row">{row}</th>
+                      {plans.map((p) => {
+                        const v = p.details?.[row];
+                        return (
+                          <td key={p.key} className={p.recommended ? "hl" : ""}>
+                            {v === true ? <span className="yes" aria-label="Inclus">✓</span> : v === false ? <span className="no" aria-label="Non inclus">—</span> : v}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="muted small">Au-delà de 20 utilisateurs, nous établissons un devis. Paiement par Mobile Money ; à l'échéance, sans renouvellement, le compte repasse en Gratuit et rien n'est supprimé.</p>
+            </div>
+          )}
         </section>
       )}
 

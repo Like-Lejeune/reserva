@@ -331,7 +331,10 @@ def test_free_plan_limits_and_usage_counters(client, monkeypatch):
     h, session = signup(client)
     assert session["org"]["plan"] == "gratuit"
     plans = client.get("/api/plans").json()  # public : lu par le site vitrine
-    assert [p["key"] for p in plans] == ["gratuit", "pro", "equipe"] and plans[0]["max_reports"] == 3
+    assert [p["key"] for p in plans] == ["gratuit", "pro", "equipe", "entreprise"] and plans[0]["max_reports"] == 3
+    # Le tableau comparatif de la vitrine : chaque offre donne une valeur pour chaque ligne.
+    assert all(p["details"].keys() == plans[0]["details"].keys() for p in plans)
+    assert (plans[0]["details"]["Votre logo et vos coordonnées sur le PDF"], plans[1]["details"]["Rapports"]) == (False, "Illimités")
     # 3 rapports maximum en gratuit ; rejouer une création déjà faite ne compte pas.
     ids = [client.post("/api/projects", headers=h, json={"name": f"Chantier {i}"}).json()["id"] for i in range(3)]
     blocked = client.post("/api/projects", headers=h, json={"name": "Chantier 4"})
@@ -386,7 +389,7 @@ def test_platform_admin(client):
     staff, me = signup(client, "699 00 00 00", "Équipe Reserva")
     assert me["user"]["is_staff"] is True
     o = client.get("/api/admin/overview", headers=staff).json()
-    assert (o["accounts"], o["users"], o["reports"]) == (2, 2, 1) and o["by_plan"] == {"gratuit": 2, "pro": 0, "equipe": 0}
+    assert (o["accounts"], o["users"], o["reports"]) == (2, 2, 1) and o["by_plan"] == {"gratuit": 2, "pro": 0, "equipe": 0, "entreprise": 0}
     assert len(o["signups_30d"]) == 30 and o["signups_30d"][-1]["count"] == 2 and o["monthly_revenue_fcfa"] == 0
     assert o["ai"]["credit_given_fcfa"] == 1000
     rows = client.get("/api/admin/accounts", headers=staff, params={"q": "jean"}).json()
@@ -466,6 +469,8 @@ def test_subscribe_renew_and_expire(client):
     client.post("/api/subscription/checkout", headers=h, json={"plan": "pro", "period": "an", **PAY})
     sub = client.get("/api/subscription", headers=h).json()
     assert 390 <= sub["days_left"] <= 398 and len(sub["history"]) == 2 and len(sub["payments"]) == 2
+    # Crédit IA compris : 500 offerts + 500 pour le mois + 6 000 pour l'année (12 x 500).
+    assert client.get("/api/me", headers=h).json()["org"]["balance_fcfa"] == 7000
     assert client.get("/api/account/usage", headers=h).json()["subscription"]["plan"] == "pro"
     # Bientôt échu : signalé. Échu : retour en Gratuit tout seul, sans rien supprimer.
     set_until(session, days=3)
@@ -566,6 +571,9 @@ def test_trustchange_uncertain_and_failed_payments(tc):
     tc.state["status"] = "SUCCESS"
     assert tc.get(f"/api/payments/{pay['id']}", headers=h).json()["status"] == "reussi"
     assert tc.get("/api/subscription", headers=h).json()["plan"] == "pro"
+    # Le mois de Pro payé apporte 500 FCFA de crédit IA, versé une seule fois même si on réinterroge.
+    tc.get(f"/api/payments/{pay['id']}", headers=h)
+    assert tc.get("/api/me", headers=h).json()["org"]["balance_fcfa"] == 1000
     # Refus net de l'agrégateur : paiement échoué, message transmis, offre inchangée.
     tc.state.update(collect="refused", status="PROCESSING")
     refused = tc.post("/api/billing/topup", headers=h, json={"amount_fcfa": 2000, **PAY})
@@ -574,23 +582,23 @@ def test_trustchange_uncertain_and_failed_payments(tc):
     assert tc.post("/api/billing/topup", headers=h, json={"amount_fcfa": 100, **PAY}).status_code == 422
     tc.state["collect"] = "ok"
     top = tc.post("/api/billing/topup", headers=h, json={"amount_fcfa": 2000, **PAY}).json()
-    assert top["status"] == "en_attente" and tc.get("/api/me", headers=h).json()["org"]["balance_fcfa"] == 500
+    assert top["status"] == "en_attente" and tc.get("/api/me", headers=h).json()["org"]["balance_fcfa"] == 1000
     tc.state["status"] = "FAILED"
     assert tc.get(f"/api/payments/{top['id']}", headers=h).json()["status"] == "echoue"
-    assert tc.get("/api/me", headers=h).json()["org"]["balance_fcfa"] == 500
+    assert tc.get("/api/me", headers=h).json()["org"]["balance_fcfa"] == 1000
     tc.state["status"] = "PROCESSING"
     top = tc.post("/api/billing/topup", headers=h, json={"amount_fcfa": 2000, **PAY}).json()
     ok = {"externalReference": f"rsv-{top['id']}", "status": "COMPLETED"}
     send_webhook(tc, ok)
     send_webhook(tc, ok)
-    assert tc.get("/api/me", headers=h).json()["org"]["balance_fcfa"] == 2500
+    assert tc.get("/api/me", headers=h).json()["org"]["balance_fcfa"] == 3000
     # Paiement resté en attente : l'administration peut le trancher après vérification.
     stuck = tc.post("/api/billing/topup", headers=h, json={"amount_fcfa": 1000, **PAY}).json()
     assert client_pending(tc, staff) == 1
     assert tc.post(f"/api/admin/payments/{stuck['id']}/settle", headers=h, json={"success": True}).status_code == 404
     assert tc.post(f"/api/admin/payments/{stuck['id']}/settle", headers=staff, json={"success": True}).json()["status"] == "reussi"
     assert tc.post(f"/api/admin/payments/{stuck['id']}/settle", headers=staff, json={"success": True}).status_code == 409
-    assert tc.get("/api/me", headers=h).json()["org"]["balance_fcfa"] == 3500
+    assert tc.get("/api/me", headers=h).json()["org"]["balance_fcfa"] == 4000
     # Un membre qui n'est pas responsable de l'espace ne peut pas engager de paiement.
     set_plan(session, "equipe")
     tech = member(tc, h, "technicien", "tech@cabinet.cm")

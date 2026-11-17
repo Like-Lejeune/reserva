@@ -104,6 +104,9 @@ export interface Plan {
   price_year_fcfa?: number;
   tagline: string;
   features: string[];
+  recommended?: boolean;
+  /** Tableau comparatif : pour chaque ligne, une coche (true), un tiret (false) ou un texte. */
+  details?: Record<string, boolean | string>;
 }
 
 interface Meter {

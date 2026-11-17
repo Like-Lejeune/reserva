@@ -157,6 +157,10 @@ def settle(db: Session, payment: Payment, success: bool, message: str = "") -> P
             credit(db, org, payment.amount_fcfa * 1000, "recharge", payment.external_reference)
         else:
             activate(db, org, payment.plan, payment.period, "paiement", payment.amount_fcfa, payment.id)
+            # Crédit IA compris dans l'offre : versé d'un coup pour toute la période payée.
+            included = PLANS[payment.plan].get("ai_credit_month_fcfa", 0) * PERIODS[payment.period][0]
+            if included:
+                credit(db, org, included * 1000, "inclus", f"inclus:{payment.id}")
             if payment.promo_code and (promo := db.get(PromoCode, payment.promo_code)):
                 promo.used += 1
                 db.add(promo)

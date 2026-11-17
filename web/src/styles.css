@@ -180,6 +180,7 @@ a.btn { display: grid; place-items: center; text-decoration: none; color: inheri
 .side { display: none; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.2rem; color: var(--ink); text-decoration: none; }
 .brand img { width: 32px; height: 32px; }
+.brand img.wordmark { width: auto; height: 36px; }
 @media (min-width: 900px) {
   .shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
   .side { display: flex; flex-direction: column; gap: 24px; padding: 20px 14px; background: #fff; border-right: 1px solid var(--line); position: sticky; top: 0; height: 100vh; }
@@ -331,3 +332,21 @@ input:disabled { background: var(--bg); color: var(--muted); }
 .legal h2 { font-size: 1.2rem; margin: 32px 0 8px; letter-spacing: 0; }
 .legal p { margin-bottom: 10px; color: #2c3643; }
 .legal .notice { color: var(--ink); }
+
+/* ---------- offres : quatre colonnes et tableau comparatif ---------- */
+.plans { grid-template-columns: repeat(4, 1fr); }
+.plan { position: relative; }
+.plan .price { margin-bottom: -6px; }
+.badge { position: absolute; top: -12px; left: 20px; background: var(--brand); color: #fff; font-size: 0.78rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+.compare-wrap { margin-top: 36px; overflow-x: auto; }
+.compare { width: 100%; border-collapse: collapse; font-size: 0.95rem; min-width: 640px; }
+.compare caption { text-align: left; font-weight: 800; font-size: 1.15rem; padding-bottom: 12px; }
+.compare th, .compare td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: center; vertical-align: middle; }
+.compare thead th { font-size: 1rem; color: var(--ink); }
+.compare tbody th { text-align: left; font-weight: 600; color: #2c3643; }
+.compare td.hl { background: #f2f5f9; }
+.compare .yes { color: var(--ok); font-weight: 800; font-size: 1.1rem; }
+.compare .no { color: #9aa5b1; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (max-width: 1080px) { .plans { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .plans { grid-template-columns: 1fr; } }
