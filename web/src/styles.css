@@ -350,3 +350,5 @@ input:disabled { background: var(--bg); color: var(--muted); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 @media (max-width: 1080px) { .plans { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .plans { grid-template-columns: 1fr; } }
+.foot-contact { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px; }
+.foot-contact a { color: var(--brand); text-decoration: none; }

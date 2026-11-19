@@ -55,6 +55,11 @@ cd backend && python -m app.backup --keep 14          # archive base + photos da
 
 Restaurer : arrêter le serveur, extraire l'archive, remettre `reserva.db` et `media/` dans `data/`, relancer.
 
+## Mise en ligne
+
+Le guide pas à pas est dans [`DEPLOIEMENT.md`](DEPLOIEMENT.md) : un script installe tout sur le
+serveur (`deploy/installer.sh`), un autre fait les mises à jour (`deploy/mettre-a-jour.sh`).
+
 ## Avant la mise en production
 
 Dans `backend/.env` :

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { go } from "../lib/nav";
-import { BRAND, TRUSTED, contactLink } from "../lib/site";
+import { BRAND, CONTACT_EMAIL, CONTACT_PHONES, TRUSTED, contactLink } from "../lib/site";
 import { fcfa, type Plan } from "../lib/types";
 
 const STEPS = [
@@ -158,7 +158,15 @@ export function Landing() {
       </section>
 
       <footer className="site-foot">
-        <span>{BRAND}, rapports de finition assistés pour le bâtiment.</span>
+        <span>
+          {BRAND}, rapports de finition assistés pour le bâtiment.
+          <span className="foot-contact">
+            {CONTACT_PHONES.map((p) => (
+              <a key={p.number} href={`https://wa.me/${p.whatsapp}`}>{p.label} {p.number}</a>
+            ))}
+            <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+          </span>
+        </span>
         <span className="foot-links">
           <a href="#/cgu">Conditions d'utilisation</a>
           <a href="#/confidentialite">Confidentialité</a>

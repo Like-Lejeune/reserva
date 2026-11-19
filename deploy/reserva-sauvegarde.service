@@ -1,0 +1,13 @@
+# Sauvegarde de la base et des photos dans /var/lib/reserva/backups (les 14 dernières sont gardées).
+# Lancée chaque nuit par reserva-sauvegarde.timer. À la main : sudo systemctl start reserva-sauvegarde
+[Unit]
+Description=Sauvegarde de Reserva
+
+[Service]
+Type=oneshot
+User=reserva
+Group=reserva
+WorkingDirectory=/opt/reserva/backend
+EnvironmentFile=/opt/reserva/backend/.env
+Environment=XDG_CACHE_HOME=/var/lib/reserva/.cache
+ExecStart=/opt/reserva/backend/.venv/bin/python -m app.backup --keep 14
