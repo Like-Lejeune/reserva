@@ -4,6 +4,8 @@
 #   sudo bash /opt/reserva/deploy/mettre-a-jour.sh
 #
 # Récupère le code, installe les dépendances, recompile le site et relance le service.
+# Installation faite depuis un zip : pour mettre à jour, décompressez le nouveau zip et relancez
+# reserva/deploy/installer.sh ; ce script-ci n'installe alors que les dépendances Python.
 # Les migrations de la base s'appliquent seules au redémarrage. Une sauvegarde est faite avant.
 set -euo pipefail
 
@@ -27,6 +29,8 @@ if [ "$RESTART" -eq 1 ] && systemctl is-active --quiet reserva; then
   systemctl start reserva-sauvegarde.service
 fi
 
+if [ ! -d "$APP_DIR/.git" ]; then GIT=0; BUILD=0; else BUILD=1; fi
+
 if [ "$GIT" -eq 1 ]; then
   echo "==> Récupération du code"
   as_app git -C "$APP_DIR" pull --ff-only
@@ -36,8 +40,10 @@ fi
 echo "==> Python et dépendances du serveur"
 as_app bash -c "cd $APP_DIR/backend && $UV venv --python 3.12 --allow-existing .venv && $UV pip install --python .venv/bin/python -e ."
 
-echo "==> Compilation du site"
-as_app bash -c "cd $APP_DIR/web && npm ci --no-audit --no-fund && npm run build"
+if [ "$BUILD" -eq 1 ]; then
+  echo "==> Compilation du site"
+  as_app bash -c "cd $APP_DIR/web && npm ci --no-audit --no-fund && npm run build"
+fi
 
 if [ "$RESTART" -eq 1 ]; then
   echo "==> Redémarrage"

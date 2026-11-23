@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Installe Reserva sur un serveur Ubuntu (22.04 ou 24.04) ou Debian 12 neuf.
+# Installe ou met à jour Reserva sur un serveur Ubuntu (22.04 ou 24.04) ou Debian 12.
 #
+# Depuis le zip (site déjà compilé, ni Node.js ni GitHub nécessaires) :
+#   unzip reserva-web-*.zip && sudo bash reserva/deploy/installer.sh
+# Depuis GitHub (le script seul, téléchargé) :
 #   sudo bash installer.sh
 #
 # Le script peut être relancé sans risque : il saute ce qui est déjà fait et ne touche jamais
@@ -23,6 +26,10 @@ DATA_DIR=/var/lib/reserva
 APP_USER=reserva
 ENV_FILE="$APP_DIR/backend/.env"
 
+# Lancé depuis un zip décompressé (le site compilé est à côté) ou seul, depuis GitHub ?
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -f "$SRC_DIR/web/dist/index.html" ]; then MODE=zip; else MODE=git; fi
+
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 fail() { printf '\n\033[1;31mErreur : %s\033[0m\n' "$*" >&2; exit 1; }
 
@@ -37,12 +44,14 @@ apt-get install -y -q sudo git curl ca-certificates nginx certbot python3-certbo
 # WeasyPrint (PDF) : ce paquet n'existe pas sous ce nom partout, il est donc facultatif.
 apt-get install -y -q libharfbuzz-subset0 2>/dev/null || true
 
-step "Node.js 22 (pour compiler le site)"
-if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  apt-get install -y -q nodejs
+if [ "$MODE" = git ]; then
+  step "Node.js 22 (pour compiler le site)"
+  if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    apt-get install -y -q nodejs
+  fi
+  node --version
 fi
-node --version
 
 step "Utilisateur et dossiers"
 id "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/$APP_USER --shell /usr/sbin/nologin "$APP_USER"
@@ -51,7 +60,14 @@ chown -R "$APP_USER:$APP_USER" "$DATA_DIR"
 chmod 750 "$DATA_DIR"
 
 step "Code de l'application"
-if [ ! -d "$APP_DIR/.git" ]; then
+if [ "$MODE" = zip ]; then
+  # Nouvelle version sur une installation qui tourne : sauvegarde d'abord.
+  if systemctl is-active --quiet reserva 2>/dev/null; then
+    echo "Sauvegarde avant de remplacer la version en place…"
+    systemctl start reserva-sauvegarde.service
+  fi
+  bash "$SRC_DIR/deploy/copier-version.sh" "$SRC_DIR" "$APP_DIR"
+elif [ ! -d "$APP_DIR/.git" ]; then
   git clone --branch "$BRANCH" "$REPO" "$APP_DIR"
 fi
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
@@ -99,8 +115,9 @@ install -m 644 "$APP_DIR/deploy/reserva.service" /etc/systemd/system/reserva.ser
 install -m 644 "$APP_DIR/deploy/reserva-sauvegarde.service" /etc/systemd/system/reserva-sauvegarde.service
 install -m 644 "$APP_DIR/deploy/reserva-sauvegarde.timer" /etc/systemd/system/reserva-sauvegarde.timer
 systemctl daemon-reload
-systemctl enable --now reserva.service
-systemctl enable --now reserva-sauvegarde.timer
+systemctl enable reserva.service reserva-sauvegarde.timer
+systemctl restart reserva.service          # prend la nouvelle version si le service tournait déjà
+systemctl start reserva-sauvegarde.timer
 
 step "Nginx"
 sed "s/__DOMAIN__/$DOMAIN/g" "$APP_DIR/deploy/nginx-reserva.conf" > /etc/nginx/sites-available/reserva

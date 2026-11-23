@@ -21,12 +21,34 @@ et l'installation sur téléphone ne fonctionnent qu'en HTTPS.
 
 ## 2. Installer
 
-Connecté au serveur en SSH :
+### Avec le zip (version web livrée, recommandé aujourd'hui)
+
+Le zip contient le site déjà compilé : le serveur n'a besoin ni de Node.js ni d'accès à GitHub.
+Depuis votre ordinateur, envoyez-le sur le serveur (remplacez `utilisateur` par votre compte SSH) :
+
+```bash
+scp reserva-web-*.zip utilisateur@169.58.220.165:~
+```
+
+Puis, connecté au serveur en SSH :
+
+```bash
+sudo apt install -y unzip
+unzip -o reserva-web-*.zip
+sudo bash reserva/deploy/installer.sh
+```
+
+**Nouvelle version plus tard** : même chose avec le nouveau zip. Le script fait une sauvegarde,
+remplace le code, garde votre `.env` et vos données, puis relance l'application.
+
+### Depuis GitHub
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Like-Lejeune/reserva/main/deploy/installer.sh -o installer.sh
 sudo bash installer.sh
 ```
+
+### Dans les deux cas
 
 Le script installe tout, crée le fichier de configuration avec une clé secrète aléatoire, lance
 l'application, configure Nginx et demande le certificat HTTPS. Il peut être relancé sans risque,
@@ -102,7 +124,8 @@ ouvrir `reserva.db` avec `sqlite3`.
 
 | Pour | Commande |
 |---|---|
-| Mettre à jour (après un envoi sur GitHub) | `sudo bash /opt/reserva/deploy/mettre-a-jour.sh` |
+| Mettre à jour depuis un nouveau zip | `unzip -o reserva-web-*.zip && sudo bash reserva/deploy/installer.sh` |
+| Mettre à jour depuis GitHub (installation faite par GitHub) | `sudo bash /opt/reserva/deploy/mettre-a-jour.sh` |
 | Voir si l'application tourne | `systemctl status reserva` |
 | Lire le journal | `sudo journalctl -u reserva -f` |
 | Redémarrer | `sudo systemctl restart reserva` |
