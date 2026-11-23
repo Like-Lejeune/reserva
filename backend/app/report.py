@@ -4,11 +4,24 @@ from datetime import date
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from weasyprint import HTML
-
 from app.config import get_settings
 from app.models import Company, Media, Organization, Project, Reserve
 from app.vocab import LOTS, SEVERITIES, STATUSES
+
+class PdfUnavailable(RuntimeError):
+    """WeasyPrint ne trouve pas ses bibliothèques (GTK/Pango) : cas courant sur un poste Windows."""
+
+
+def _html_class():
+    # Import tardif : sans GTK, le reste de l'application démarre quand même, seul le PDF manque.
+    try:
+        from weasyprint import HTML
+    except (ImportError, OSError) as e:
+        raise PdfUnavailable(
+            "La génération du PDF n'est pas disponible sur ce poste : les bibliothèques GTK manquent. "
+            "Sous Windows, relancez lancer-local.cmd -InstallerPdf.") from e
+    return HTML
+
 
 _env = Environment(loader=FileSystemLoader(Path(__file__).parent / "templates"),
                    autoescape=select_autoescape(["html"]))
@@ -37,4 +50,4 @@ def render_report(org: Organization | None, project: Project, reserves: list[Res
         org=org, logo=logo.as_uri() if logo and logo.exists() else "", project=project, title=title, today=date.today().strftime("%d/%m/%Y"), total=len(reserves),
         groups=[(LOTS.get(lot, lot), items) for lot, items in groups.items()],
         counts=counts, STATUSES=STATUSES, SEVERITIES=SEVERITIES)
-    return HTML(string=html, base_url=str(media_dir)).write_pdf()
+    return _html_class()(string=html, base_url=str(media_dir)).write_pdf()

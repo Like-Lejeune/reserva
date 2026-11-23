@@ -785,3 +785,21 @@ def test_migrations_match_models_and_backup_restores(client):
     newest = make_backup(dest, keep=2)
     left = sorted(f.name for f in dest.glob("reserva-*.tar.gz"))
     assert len(left) == 2 and newest.name in left and "reserva-20200101-000000.tar.gz" not in left
+
+
+def test_app_starts_without_pdf_libraries(client, monkeypatch):
+    """Sur un poste Windows sans GTK : tout marche, seul le PDF répond par un message clair."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_weasyprint(name, *args, **kwargs):
+        if name == "weasyprint":
+            raise OSError("cannot load library 'gobject-2.0-0'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_weasyprint)
+    h, _ = signup(client)
+    p, _ = setup_project(client, h)
+    r = client.get(f"/api/projects/{p['id']}/report.pdf", headers=h)
+    assert r.status_code == 503 and "GTK" in r.json()["detail"]

@@ -22,7 +22,7 @@ from app.dispatch import build_message, build_sms, get_channel, wa_link
 from app.models import (ROLES, Company, DispatchLog, Media, Organization, Project, Reserve, User, Visit,
                         as_utc, now)
 from app.plans import check_can_create_report, check_can_store, check_feature, plan_of
-from app.report import render_report
+from app.report import PdfUnavailable, render_report
 from app.schemas import (CompanyIn, DispatchIn, ProjectIn, ReserveIn, StatusChange, StructureIn, SyncPush,
                          VisitIn)
 
@@ -459,7 +459,10 @@ def _build_pdf(db: Session, p: Project, company_id: str | None, open_only: bool)
     media = db.exec(select(Media).where(Media.reserve_id.in_(ids)).order_by(Media.created_at)).all() if ids else []
     org = db.get(Organization, p.org_id)
     # L'en-tête au nom du client (logo, coordonnées) est une fonction des offres payantes.
-    pdf = render_report(org if plan_of(org).get("branding") else None, p, reserves, media, companies, title)
+    try:
+        pdf = render_report(org if plan_of(org).get("branding") else None, p, reserves, media, companies, title)
+    except PdfUnavailable as e:
+        raise HTTPException(503, str(e)) from e
     return Response(pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="reserves-{p.id[:8]}.pdf"'})
 

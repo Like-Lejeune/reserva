@@ -9,6 +9,11 @@ l'envoie par WhatsApp et suit les corrections. Fonctionne sans connexion.
 | `web/` | Site React TypeScript : vitrine, espace utilisateur (installable sur téléphone), administration |
 | `mobile/` | Application Flutter (écrite, pas encore compilée : voir `mobile/README.md`) |
 
+## Tester sur un poste Windows
+
+Double-cliquer sur `lancer-local.cmd` : tout s'installe et le site s'ouvre sur http://localhost:8000.
+Le guide et la liste des vérifications sont dans [`TESTER-EN-LOCAL.md`](TESTER-EN-LOCAL.md).
+
 ## Lancer en développement
 
 ```bash
