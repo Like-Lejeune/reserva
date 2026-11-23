@@ -3,7 +3,7 @@ import { getSession } from "../lib/api";
 import { back } from "../lib/nav";
 import { PhotoView } from "../lib/PhotoView";
 import { addPhoto, getDefect, listPhotos, saveDefect, useLive } from "../lib/store";
-import { isDone, LOTS, SEVERITIES, STATUS_LABELS, type Defect, type Severity } from "../lib/types";
+import { isDone, isLate, LOTS, SEVERITIES, shortDate, STATUS_LABELS, type Defect, type Severity } from "../lib/types";
 
 /** Détail d'un défaut : le corriger (avec photo « après »), ou ajuster ce que l'IA a rempli. */
 export function DefectPage({ defectId }: { defectId: string }) {
@@ -106,7 +106,11 @@ export function DefectPage({ defectId }: { defectId: string }) {
           </div>
           <label>
             Travail à faire
-            <input value={form.action} onChange={(e) => set("action", e.target.value)} />
+            <textarea rows={2} value={form.action} onChange={(e) => set("action", e.target.value)} />
+          </label>
+          <label>
+            À corriger avant le
+            <input type="date" value={(form.due_date ?? "").slice(0, 10)} onChange={(e) => set("due_date", e.target.value || null)} />
           </label>
           <div className="row">
             <button className="btn" onClick={() => setEditing(false)}>Annuler</button>
@@ -115,12 +119,15 @@ export function DefectPage({ defectId }: { defectId: string }) {
         </div>
       ) : (
         <div className="card stack">
-          <p className="desc">{defect.description || "Sans description"}</p>
+          <p className="desc">{defect.description || (defect.needs_photo_ai ? "Description en attente : l'IA lira la photo une fois envoyée" : "Sans description")}</p>
           <dl>
             <dt>Corps de métier</dt><dd>{defect.needs_ai ? "Classement en attente de connexion" : LOTS[defect.lot] ?? defect.lot}</dd>
             {defect.location && (<><dt>Lieu</dt><dd>{defect.location}</dd></>)}
             <dt>Gravité</dt><dd>{SEVERITIES[defect.severity]}</dd>
             {defect.action && (<><dt>Travail à faire</dt><dd>{defect.action}</dd></>)}
+            {defect.due_date && !isDone(defect.status) && (
+              <><dt>À corriger avant le</dt><dd className={isLate(defect) ? "error" : ""}>{shortDate(defect.due_date)}{isLate(defect) ? ", en retard" : ""}</dd></>
+            )}
           </dl>
           <button className="btn" onClick={() => setEditing(true)}>Modifier</button>
         </div>

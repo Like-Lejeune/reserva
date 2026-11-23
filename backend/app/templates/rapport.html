@@ -14,6 +14,9 @@
   h2 { font-size: 12pt; margin: 7mm 0 2mm; padding: 1.5mm 2.5mm; background: #1f3a5f; color: #fff; }
   .meta { color: #444; margin-bottom: 4mm; }
   .meta b { color: #1a1a1a; }
+  .summary { border-left: 1mm solid #1f3a5f; padding: 1mm 0 1mm 4mm; margin-bottom: 4mm; }
+  .summary p { margin: 0 0 2mm; line-height: 1.45; }
+  .item .due { color: #444; }
   .kpis { display: flex; gap: 3mm; margin: 4mm 0; }
   .kpi { flex: 1; border: 0.3mm solid #ccc; padding: 2mm; text-align: center; }
   .kpi .n { font-size: 15pt; font-weight: bold; }
@@ -58,6 +61,13 @@
     {% endfor %}
   </div>
 
+  {% if project.summary %}
+  <h2>Synthèse</h2>
+  <div class="summary">
+    {% for para in project.summary.split("\n") if para.strip() %}<p>{{ para }}</p>{% endfor %}
+  </div>
+  {% endif %}
+
   {% for lot, items in groups %}
   <h2>{{ lot }} — {{ items|length }} réserve(s)</h2>
   {% for it in items %}
@@ -71,7 +81,7 @@
     </div>
     <div>{{ it.r.description }}</div>
     {% if it.r.action %}<div class="action"><b>À faire :</b> {{ it.r.action }}</div>{% endif %}
-    {% if it.r.due_date %}<div class="action"><b>Délai :</b> {{ it.r.due_date.strftime("%d/%m/%Y") }}</div>{% endif %}
+    {% if it.r.due_date and it.r.status != "levee" %}<div class="action due"><b>À lever avant le</b> {{ it.r.due_date.strftime("%d/%m/%Y") }}</div>{% endif %}
     {% if it.avant or it.apres %}
     <div class="photos">
       {% for src in it.avant %}<figure><img src="{{ src }}"><figcaption>Avant</figcaption></figure>{% endfor %}

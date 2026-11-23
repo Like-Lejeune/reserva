@@ -40,6 +40,7 @@ export function AddDefect({ projectId }: { projectId: string }) {
     d.transcript = note.trim();
     d.description = note.trim();
     d.needs_ai = !!note.trim();
+    d.needs_photo_ai = !note.trim() && !!photo; // photo seule : l'IA décrira le défaut d'après l'image
     await saveDefect(d);
     if (photo) await addPhoto(d.id, "photo_avant", photo);
     if (another) {
@@ -79,7 +80,10 @@ export function AddDefect({ projectId }: { projectId: string }) {
           {listening ? "■ Arrêter la dictée" : "🎤 Dicter"}
         </button>
       )}
-      <p className="muted small">Le corps de métier, le lieu et la gravité sont remplis automatiquement. Vous pourrez les corriger.</p>
+      <p className="muted small">
+        Dites tout d'un trait, même plusieurs défauts : « dans la cuisine, fuite sous l'évier, et un carreau cassé près
+        de la porte ». Chaque défaut est séparé, classé, et reçoit le travail à faire et un délai. Vous pourrez tout corriger.
+      </p>
 
       <div className="stack">
         <button className="btn primary big" onClick={() => save(false)} disabled={empty || saving}>Enregistrer</button>

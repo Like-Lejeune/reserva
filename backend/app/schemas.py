@@ -76,6 +76,13 @@ class ProjectIn(BaseModel):
     location: str = ""
 
 
+class ProjectPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    client: str | None = None
+    location: str | None = None
+    summary: str | None = Field(default=None, max_length=8000)
+
+
 class CompanyIn(BaseModel):
     id: str | None = None
     name: str = Field(min_length=1)
@@ -139,6 +146,7 @@ class ReserveDraft(BaseModel):
     description: str = ""
     action: str = ""
     severity: Severity = "mineure"
+    due_in_days: int = 15  # délai conseillé pour lever le défaut
     provider: str = ""
 
 

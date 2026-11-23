@@ -5,7 +5,7 @@ Rôles : lecteur (lecture) < technicien (saisie) < ingenieur (validation, envoi)
 """
 
 import io
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
@@ -23,7 +23,7 @@ from app.models import (ROLES, Company, DispatchLog, Media, Organization, Projec
                         as_utc, now)
 from app.plans import check_can_create_report, check_can_store, check_feature, plan_of
 from app.report import PdfUnavailable, render_report
-from app.schemas import (CompanyIn, DispatchIn, ProjectIn, ReserveIn, StatusChange, StructureIn, SyncPush,
+from app.schemas import (CompanyIn, DispatchIn, ProjectIn, ProjectPatch, ReserveIn, StatusChange, StructureIn, SyncPush,
                          VisitIn)
 
 router = APIRouter(prefix="/api")
@@ -171,6 +171,19 @@ def delete_project(project_id: str, user: User = Engineer, db: Session = Depends
     db.delete(p)
     db.commit()
     return {"deleted": True}
+
+
+@router.patch("/projects/{project_id}")
+def patch_project(project_id: str, body: ProjectPatch, user: User = Engineer, db: Session = Depends(get_session)) -> Project:
+    """Renomme le chantier, ou enregistre la synthèse corrigée par l'ingénieur."""
+    p = _project(db, project_id, user)
+    for key, value in body.model_dump(exclude_none=True).items():
+        setattr(p, key, value.strip() if isinstance(value, str) else value)
+    p.updated_at = now()
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return p
 
 
 @router.get("/projects/{project_id}")
@@ -397,25 +410,31 @@ def _billing_view(org: Organization, charged: int, notice: str = "") -> dict:
     return {"charged_fcfa": fcfa(charged), "balance_fcfa": fcfa(org.balance_mfcfa), "notice": notice}
 
 
+def _provider_for(org: Organization):
+    """Le fournisseur configuré ; sans crédit, les règles du métier, gratuites : on ne bloque jamais la saisie."""
+    provider = get_provider()
+    if provider.name != "rules" and org.balance_mfcfa <= 0:
+        return RulesProvider(), "Crédit IA épuisé : proposition par les règles du métier (gratuite)."
+    return provider, ""
+
+
 @router.post("/ai/structure")
 def ai_structure(body: StructureIn, user: User = Writer, db: Session = Depends(get_session)) -> dict:
-    """Note dictée -> proposition de réserve (pièce, lot, description, action, gravité).
+    """Note dictée -> un ou plusieurs défauts (lieu, corps de métier, description, travail à faire, gravité, délai).
 
-    Sans crédit, la proposition vient du classement par mots-clés, gratuit : on ne bloque jamais la saisie.
+    `draft` est le premier défaut (celui de la photo) ; `drafts` les contient tous, quand la note en décrit plusieurs.
     """
     org = db.get(Organization, user.org_id)
-    provider, notice = get_provider(), ""
-    if provider.name != "rules" and org.balance_mfcfa <= 0:
-        provider, notice = RulesProvider(), "Crédit IA épuisé : proposition par mots-clés (gratuite)."
-    draft, usage = provider.structure(body.text)
+    provider, notice = _provider_for(org)
+    drafts, usage = provider.analyze(body.text)
     charged = charge(db, org, user, "structure", usage)
-    return {"draft": draft, **_billing_view(org, charged, notice)}
+    return {"draft": drafts[0], "drafts": drafts, **_billing_view(org, charged, notice)}
 
 
 @router.post("/ai/transcribe")
 async def ai_transcribe(file: UploadFile = File(...), duration_s: float = Form(0), user: User = Writer,
                         db: Session = Depends(get_session)) -> dict:
-    """Note vocale -> texte + proposition de réserve."""
+    """Note vocale -> texte + défauts proposés."""
     org = db.get(Organization, user.org_id)
     provider = get_provider()
     if provider.name != "rules" and org.balance_mfcfa <= 0:
@@ -426,11 +445,92 @@ async def ai_transcribe(file: UploadFile = File(...), duration_s: float = Form(0
     except AIUnavailable as e:
         raise HTTPException(503, str(e)) from e
     charged = charge(db, org, user, "transcribe", usage)
-    draft = None
+    drafts = []
     if text:
-        draft, usage2 = provider.structure(text)
+        drafts, usage2 = provider.analyze(text)
         charged += charge(db, org, user, "structure", usage2)
-    return {"text": text, "draft": draft, **_billing_view(org, charged)}
+    return {"text": text, "draft": drafts[0] if drafts else None, "drafts": drafts, **_billing_view(org, charged)}
+
+
+@router.post("/ai/reserves/{reserve_id}/describe")
+def ai_describe_photo(reserve_id: str, user: User = Writer, db: Session = Depends(get_session)) -> dict:
+    """Défaut photographié sans note : l'IA lit la photo et remplit ce qui est vide (rien n'est écrasé)."""
+    r = _reserve(db, reserve_id, user)
+    photo = db.exec(select(Media).where(Media.reserve_id == r.id, Media.kind == "photo_avant")
+                    .order_by(Media.created_at)).first()
+    path = get_settings().media_dir / photo.filename if photo else None
+    if not path or not path.exists():
+        raise HTTPException(404, "Ce défaut n'a pas encore de photo sur le serveur")
+    org = db.get(Organization, user.org_id)
+    provider = get_provider()
+    if provider.name != "rules" and org.balance_mfcfa <= 0:
+        raise HTTPException(402, "Crédit IA épuisé : décrivez le défaut en quelques mots.")
+    try:
+        draft, usage = provider.describe_photo(path.read_bytes(), r.transcript)
+    except AIUnavailable as e:
+        raise HTTPException(503, str(e)) from e
+    charged = charge(db, org, user, "photo", usage)
+    if draft.description:
+        was_empty = not r.description
+        r.description = r.description or draft.description
+        r.action = r.action or draft.action
+        r.location = r.location or draft.location
+        if r.lot == "autre":
+            r.lot = draft.lot
+        if was_empty:
+            r.severity = draft.severity
+        if r.due_date is None and r.status != "levee":
+            r.due_date = date.today() + timedelta(days=draft.due_in_days)
+        r.updated_at = now()
+        db.add(r)
+        db.commit()
+        db.refresh(r)
+    return {"reserve": _reserve_out(db, r), "found": bool(draft.description), **_billing_view(org, charged)}
+
+
+def _facts(db: Session, p: Project) -> dict:
+    """Ce que dit le chantier, en chiffres et en lignes : la matière de la synthèse."""
+    rows = db.exec(select(Reserve).where(Reserve.project_id == p.id, Reserve.deleted == False)  # noqa: E712
+                   .order_by(Reserve.number)).all()
+    still = [r for r in rows if r.status != "levee"]
+    today = date.today()
+    by_lot: dict[str, int] = {}
+    for r in still:
+        by_lot[vocab.LOTS.get(r.lot, r.lot)] = by_lot.get(vocab.LOTS.get(r.lot, r.lot), 0) + 1
+
+    def line(r: Reserve) -> dict:
+        return {"number": r.number, "location": r.location, "lot": vocab.LOTS.get(r.lot, r.lot),
+                "description": r.description or r.transcript, "action": r.action,
+                "severity": vocab.SEVERITIES.get(r.severity, r.severity), "status": vocab.STATUSES.get(r.status, r.status),
+                "due_date": r.due_date.isoformat() if r.due_date else None}
+
+    return {
+        "project": p.name, "client": p.client, "date": today.strftime("%d/%m/%Y"),
+        "total": len(rows), "done": len(rows) - len(still), "open": len(still),
+        "waiting_check": sum(1 for r in still if r.status == "levee_declaree"),
+        "urgent_open": [line(r) for r in still if r.severity == "bloquante"],
+        "by_lot_open": sorted(by_lot.items(), key=lambda kv: -kv[1]),
+        "late": sum(1 for r in still if r.due_date and r.due_date < today),
+        "open_items": [line(r) for r in still[:60]],
+    }
+
+
+@router.post("/projects/{project_id}/synthesis")
+def write_synthesis(project_id: str, user: User = Engineer, db: Session = Depends(get_session)) -> dict:
+    """Rédige la synthèse du rapport (état, urgences, priorités, proposition de réception).
+
+    Elle remplace la précédente ; l'ingénieur la relit et la corrige ensuite (PATCH /projects/{id}).
+    """
+    p = _project(db, project_id, user)
+    org = db.get(Organization, user.org_id)
+    provider, notice = _provider_for(org)
+    text, usage = provider.synthesize(_facts(db, p))
+    charged = charge(db, org, user, "synthese", usage)
+    p.summary, p.summary_at, p.updated_at = text, now(), now()
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return {"summary": p.summary, "summary_at": p.summary_at, "provider": provider.name, **_billing_view(org, charged, notice)}
 
 
 # ---------- rapport et envoi ----------

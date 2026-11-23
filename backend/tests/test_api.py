@@ -249,12 +249,27 @@ class FakeOnlineProvider:
 
     name = "openai"
 
-    def structure(self, text):
+    def analyze(self, text):
         from app.billing import Usage
         from app.schemas import ReserveDraft
 
-        return (ReserveDraft(lot="plomberie", description=text, action="Reprendre", provider="openai"),
+        return ([ReserveDraft(lot="plomberie", description=text, action="Reprendre", provider="openai")],
                 Usage(provider="openai", model="m", input_tokens=400, output_tokens=100))
+
+    def describe_photo(self, image, note=""):
+        from app.billing import Usage
+        from app.schemas import ReserveDraft
+
+        assert image[:2] == b"\xff\xd8"  # c'est bien la photo enregistrée, en JPEG
+        return (ReserveDraft(location="Cuisine", lot="carrelage", description="Carreau fissuré au pied de l'évier",
+                             action="Remplacer le carreau et refaire les joints", severity="majeure", due_in_days=7,
+                             provider="openai"),
+                Usage(provider="openai", model="vision", input_tokens=1200, output_tokens=80))
+
+    def synthesize(self, facts):
+        from app.billing import Usage
+
+        return (f"Synthèse rédigée : {facts['total']} défauts.", Usage(provider="openai", model="m", input_tokens=900, output_tokens=300))
 
     def transcribe(self, audio, filename, content_type, duration_s=0):
         from app.billing import Usage
@@ -803,3 +818,105 @@ def test_app_starts_without_pdf_libraries(client, monkeypatch):
     p, _ = setup_project(client, h)
     r = client.get(f"/api/projects/{p['id']}/report.pdf", headers=h)
     assert r.status_code == 503 and "GTK" in r.json()["detail"]
+
+
+# ---------- l'IA qui aide à rédiger ----------
+
+def test_dictation_becomes_several_complete_defects(client):
+    h, _ = signup(client)
+    note = ("dans la cuisine il y a une fuite sous l'évier. Aussi un carreau cassé près de la porte "
+            "et la prise à côté du frigo ne fonctionne pas")
+    r = client.post("/api/ai/structure", headers=h, json={"text": note}).json()
+    drafts = r["drafts"]
+    assert [d["lot"] for d in drafts] == ["plomberie", "carrelage", "electricite"]
+    assert all(d["location"] == "Cuisine" for d in drafts)  # le lieu suit d'un défaut au suivant
+    assert drafts[0]["description"] == "Fuite sous l'évier" and drafts[0]["action"].startswith("Rechercher l'origine")
+    assert r["draft"] == drafts[0] and r["charged_fcfa"] == 0
+    # Gravité et délai : la sécurité passe avant tout.
+    urgent = client.post("/api/ai/structure", headers=h, json={"text": "prise manquante chambre 2, fil dénudé apparent"}).json()["draft"]
+    assert (urgent["severity"], urgent["due_in_days"], urgent["lot"]) == ("bloquante", 2, "electricite")
+    # Le mot « fenêtre » ne fait pas d'une fissure de mur un défaut de menuiserie.
+    crack = client.post("/api/ai/structure", headers=h, json={"text": "fissure sur le mur du salon au-dessus de la fenêtre"}).json()["draft"]
+    assert crack["lot"] == "maconnerie" and crack["location"] == "Salon"
+
+
+def test_online_provider_parses_and_falls_back(monkeypatch):
+    import httpx
+
+    from app.ai import OpenAICompatProvider
+    from app.billing import Usage
+    from app.config import Settings
+
+    provider = OpenAICompatProvider(Settings(ai_provider="openai", ai_api_key="k"))
+    answer = {"reserves": [
+        {"location": "Cuisine", "lot": "plomberie", "description": "Fuite au raccord du siphon de l'évier",
+         "action": "Resserrer ou remplacer le raccord", "severity": "majeure"},
+        {"location": "", "lot": "inconnu", "description": "Carreau fêlé", "action": "", "severity": "grave"}]}
+    monkeypatch.setattr(provider, "_chat", lambda *a, **k: (json.dumps(answer), Usage(provider="openai", input_tokens=10, output_tokens=5)))
+    drafts, usage = provider.analyze("dans la cuisine fuite sous l'évier et un carreau fêlé")
+    assert len(drafts) == 2 and usage.billable
+    assert drafts[0].description == "Fuite au raccord du siphon de l'évier" and drafts[0].due_in_days == 7
+    # Valeurs hors liste : on reprend celles des règles du métier, jamais une valeur inventée.
+    assert drafts[1].lot == "carrelage" and drafts[1].severity in ("mineure", "majeure", "bloquante")
+    assert drafts[1].action  # proposé par les règles quand le modèle n'en donne pas
+
+    def down(*a, **k):
+        raise httpx.ConnectError("réseau coupé")
+
+    monkeypatch.setattr(provider, "_chat", down)
+    drafts, usage = provider.analyze("fuite sous l'évier")
+    assert drafts[0].provider == "rules (repli)" and not usage.billable  # rien n'est facturé
+    text, usage = provider.synthesize({"project": "X", "total": 0, "done": 0, "open": 0, "urgent_open": [],
+                                       "by_lot_open": [], "late": 0})
+    assert "Aucun défaut" in text and not usage.billable
+
+
+def test_synthesis_written_edited_and_in_pdf(client):
+    import subprocess
+
+    h, session = signup(client)
+    p, _ = setup_project(client, h)
+    for text, status in [("fuite sous l'évier de la cuisine", "ouverte"), ("prise manquante chambre 2, fil dénudé apparent", "ouverte"),
+                         ("coulures de peinture au salon", "ouverte")]:
+        d = client.post("/api/ai/structure", headers=h, json={"text": text}).json()["draft"]
+        d.pop("provider"), d.pop("due_in_days")
+        client.put(f"/api/reserves/{uuid4()}", headers=h, json={"project_id": p["id"], **d, "status": status})
+    r = client.post(f"/api/projects/{p['id']}/synthesis", headers=h).json()
+    summary = r["summary"]
+    assert "3 défauts relevés" in summary and "Points urgents : 1 défaut" in summary
+    assert "différer la réception" in summary and "à valider par l'ingénieur" in summary
+    assert r["charged_fcfa"] == 0
+    # L'ingénieur corrige ; sa version est celle du PDF.
+    edited = summary + "\n\nVisite faite en présence du maître d'ouvrage."
+    assert client.patch(f"/api/projects/{p['id']}", headers=h, json={"summary": edited}).json()["summary"] == edited
+    assert client.get("/api/projects", headers=h).json()[0]["summary"] == edited
+    pdf = client.get(f"/api/projects/{p['id']}/report.pdf", headers=h).content
+    text = subprocess.run(["pdftotext", "-", "-"], input=pdf, capture_output=True).stdout.decode()
+    assert "Synthèse" in text and "présence du maître" in text and "À lever avant le" not in text
+    # Un lecteur ne peut pas réécrire la synthèse.
+    set_plan(session, "equipe")
+    reader = member(client, h, "lecteur", "lecteur@cabinet.cm")
+    assert client.post(f"/api/projects/{p['id']}/synthesis", headers=reader).status_code == 403
+
+
+def test_photo_alone_is_described(client, monkeypatch):
+    import app.api as api
+
+    h, _ = signup(client)
+    p, _ = setup_project(client, h)
+    rid = str(uuid4())
+    client.put(f"/api/reserves/{rid}", headers=h, json={"project_id": p["id"], "lot": "autre", "description": ""})
+    assert client.post(f"/api/ai/reserves/{rid}/describe", headers=h).status_code == 404  # pas encore de photo
+    client.put(f"/api/media/{uuid4()}", headers=h, data={"reserve_id": rid, "kind": "photo_avant"},
+               files={"file": ("p.jpg", photo(), "image/jpeg")})
+    # Sans IA en ligne : réponse claire, la saisie manuelle reste possible.
+    r = client.post(f"/api/ai/reserves/{rid}/describe", headers=h)
+    assert r.status_code == 503 and "photos" in r.json()["detail"]
+    monkeypatch.setattr(api, "get_provider", lambda: FakeOnlineProvider())
+    r = client.post(f"/api/ai/reserves/{rid}/describe", headers=h).json()
+    got = r["reserve"]
+    assert (got["description"], got["lot"], got["severity"], got["location"]) == ("Carreau fissuré au pied de l'évier", "carrelage", "majeure", "Cuisine")
+    assert got["due_date"] and r["charged_fcfa"] > 0
+    # Ce que l'ingénieur a écrit n'est jamais écrasé.
+    client.put(f"/api/reserves/{rid}", headers=h, json={"project_id": p["id"], "lot": "carrelage", "description": "Ma description"})
+    assert client.post(f"/api/ai/reserves/{rid}/describe", headers=h).json()["reserve"]["description"] == "Ma description"

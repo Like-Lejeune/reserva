@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     ai_api_key: str = ""
     ai_llm_model: str = "gpt-4o-mini"
     ai_asr_model: str = "whisper-1"
+    ai_vision_model: str = ""  # modèle qui lit les photos ; vide = pas de lecture des photos
 
     # --- Envoi : "console" (journal), "whatsapp" (Cloud API) ou "sms" (passerelle HTTP) ---
     dispatch_channel: str = "console"

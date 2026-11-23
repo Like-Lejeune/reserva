@@ -92,6 +92,8 @@ class Project(SQLModel, table=True):
     name: str
     client: str = ""  # maître d'ouvrage
     location: str = ""
+    summary: str = ""  # synthèse en tête du rapport : proposée par l'IA, corrigée par l'ingénieur
+    summary_at: datetime | None = None
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now, index=True)
 

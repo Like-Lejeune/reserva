@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import { api, ApiError, getSession, setSession } from "./api";
-import type { Defect, Photo, Project } from "./types";
+import { inDays, type Defect, type Photo, type Project } from "./types";
 
 type StoreName = "projects" | "defects" | "photos";
 
@@ -148,6 +148,25 @@ async function dropLocalProject(id: string): Promise<void> {
   await del("projects", id);
 }
 
+/** Rédige la synthèse du rapport sur le serveur (connexion nécessaire), puis la garde ici. */
+export async function writeSynthesis(projectId: string): Promise<{ summary: string; provider: string; notice: string }> {
+  await sync(); // la synthèse doit tenir compte de ce qui vient d'être saisi
+  const res = await api<{ summary: string; provider: string; notice: string; balance_fcfa: number }>(
+    `/projects/${projectId}/synthesis`, { method: "POST" });
+  rememberBalance(res.balance_fcfa);
+  const p = await getOne<Project>("projects", projectId);
+  if (p) await put("projects", { ...p, summary: res.summary });
+  emit();
+  return res;
+}
+
+export async function saveSynthesis(projectId: string, summary: string): Promise<void> {
+  await api(`/projects/${projectId}`, { method: "PATCH", json: { summary } });
+  const p = await getOne<Project>("projects", projectId);
+  if (p) await put("projects", { ...p, summary });
+  emit();
+}
+
 export async function saveDefect(d: Defect): Promise<void> {
   await put("defects", { ...d, updated_at: new Date().toISOString(), dirty: true });
   emit();
@@ -253,9 +272,16 @@ async function doSync(): Promise<void> {
   }
 }
 
+type Draft = Pick<Defect, "location" | "lot" | "description" | "action" | "severity"> & { due_in_days: number };
 interface AiAnswer {
-  draft: Pick<Defect, "location" | "lot" | "description" | "action" | "severity">;
+  draft: Draft;
+  drafts?: Draft[];
   balance_fcfa: number;
+}
+
+function rememberBalance(balance_fcfa: number) {
+  const s = getSession();
+  if (s) localStorage.setItem("reserva.session", JSON.stringify({ ...s, org: { ...s.org, balance_fcfa } }));
 }
 
 async function push(): Promise<void> {
@@ -279,21 +305,31 @@ async function push(): Promise<void> {
   }
 
   const dirty = (await getAll<Defect>("defects")).filter((x) => x.dirty && !waiting.has(x.project_id));
-  // Aide IA : la note dictée est classée (lot, lieu, gravité, travail à faire) avant l'envoi.
+  // Aide IA : la note dictée devient un ou plusieurs défauts complets (lieu, corps de métier, description
+  // propre, travail à faire, gravité, délai) avant l'envoi.
   for (const d of dirty.filter((x) => x.needs_ai && x.transcript.trim() && !x.deleted)) {
     try {
-      const { draft, balance_fcfa } = await api<AiAnswer>("/ai/structure", { json: { text: d.transcript } });
+      const { draft, drafts, balance_fcfa } = await api<AiAnswer>("/ai/structure", { json: { text: d.transcript } });
       Object.assign(d, {
         lot: draft.lot,
         severity: draft.severity,
         location: d.location || draft.location,
         action: d.action || draft.action,
         description: draft.description || d.description,
+        due_date: d.due_date || inDays(draft.due_in_days),
         needs_ai: false,
       });
       await put("defects", d);
-      const s = getSession();
-      if (s) localStorage.setItem("reserva.session", JSON.stringify({ ...s, org: { ...s.org, balance_fcfa } }));
+      // La note en décrivait plusieurs : chacun devient un défaut (sans photo), envoyé au passage suivant.
+      for (const extra of (drafts ?? []).slice(1)) {
+        await put("defects", {
+          ...newDefect(d.project_id),
+          location: extra.location, lot: extra.lot, description: extra.description, action: extra.action,
+          severity: extra.severity, due_date: inDays(extra.due_in_days), dirty: true,
+        } satisfies Defect);
+        again = true;
+      }
+      rememberBalance(balance_fcfa);
     } catch (e) {
       if (e instanceof ApiError && e.status === 0) throw e; // réseau coupé : on réessaiera tout
       d.needs_ai = false; // l'IA n'a pas pu aider : la note part telle quelle, modifiable à la main
@@ -305,7 +341,7 @@ async function push(): Promise<void> {
         reserves: dirty.map((d) => ({
           id: d.id, project_id: d.project_id, location: d.location, lot: d.lot, description: d.description,
           action: d.action, severity: d.severity, status: d.status, transcript: d.transcript,
-          updated_at: d.updated_at, deleted: !!d.deleted,
+          due_date: d.due_date ?? null, updated_at: d.updated_at, deleted: !!d.deleted,
         })),
       },
     });
@@ -340,6 +376,23 @@ async function push(): Promise<void> {
       } else throw e;
     }
   }
+
+  // Photo sans note : une fois la photo sur le serveur, l'IA décrit le défaut qu'elle montre.
+  for (const d of (await getAll<Defect>("defects")).filter((x) => x.needs_photo_ai && !x.dirty && !x.deleted)) {
+    const photos = await byIndex<Photo>("photos", "reserve_id", d.id);
+    if (photos.some((ph) => !ph.uploaded)) continue;
+    try {
+      const res = await api<{ reserve: ServerDefect; balance_fcfa: number }>(`/ai/reserves/${d.id}/describe`, { method: "POST" });
+      const { media: _media, ...fields } = res.reserve;
+      const current = await getOne<Defect>("defects", d.id);
+      if (current && !current.dirty) await put("defects", { ...current, ...fields, needs_photo_ai: false, dirty: false });
+      rememberBalance(res.balance_fcfa);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) throw e;
+      // Pas d'IA de vision, ou pas de crédit : on n'insiste pas, l'ingénieur complète à la main.
+      await put("defects", { ...d, needs_photo_ai: false });
+    }
+  }
 }
 
 interface ServerDefect extends Defect {
@@ -356,7 +409,8 @@ async function pull(): Promise<void> {
   for (const p of localProjects) if (!p.dirty && !remote.some((r) => r.id === p.id)) await dropLocalProject(p.id);
   for (const p of remote) {
     if (localProjects.find((x) => x.id === p.id)?.deleted) continue; // suppression en attente d'envoi
-    await put("projects", { id: p.id, name: p.name, client: p.client, location: p.location, created_at: p.created_at, dirty: false });
+    await put("projects", { id: p.id, name: p.name, client: p.client, location: p.location, summary: p.summary ?? "",
+                            created_at: p.created_at, dirty: false });
     const server = await api<ServerDefect[]>(`/projects/${p.id}/reserves`);
     const local = await byIndex<Defect>("defects", "project_id", p.id);
     for (const d of local) if (!d.dirty && !server.some((r) => r.id === d.id)) await del("defects", d.id);

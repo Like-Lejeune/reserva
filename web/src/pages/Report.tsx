@@ -3,7 +3,8 @@ import { api } from "../lib/api";
 import { go } from "../lib/nav";
 import { PhotoView } from "../lib/PhotoView";
 import { deleteProject, getProject, listDefects, listPhotos, sync, useLive, useSyncState } from "../lib/store";
-import { isDone, LOTS, SEVERITIES, STATUS_LABELS, type Defect, type Photo } from "../lib/types";
+import { isDone, isLate, LOTS, SEVERITIES, shortDate, STATUS_LABELS, type Defect, type Photo } from "../lib/types";
+import { Synthesis } from "./Synthesis";
 
 async function load(projectId: string) {
   const [project, defects] = await Promise.all([getProject(projectId), listDefects(projectId)]);
@@ -105,6 +106,8 @@ export function Report({ projectId }: { projectId: string }) {
         </>
       )}
 
+      <Synthesis project={project} count={defects.length} />
+
       {defects.length === 0 && (
         <p className="empty">Prenez une photo du premier défaut : appuyez sur le bouton en bas.</p>
       )}
@@ -132,12 +135,15 @@ function DefectRow({ d, photo }: { d: Defect; photo?: Photo }) {
         <strong>{d.description || d.transcript || "Défaut sans description"}</strong>
         <span className="muted">
           {d.number ? `N° ${d.number} · ` : ""}
-          {d.needs_ai ? "Classement en attente" : LOTS[d.lot] ?? d.lot}
+          {d.needs_ai ? "Classement en attente" : d.needs_photo_ai ? "Lecture de la photo en attente" : LOTS[d.lot] ?? d.lot}
           {d.location ? ` · ${d.location}` : ""}
         </span>
         <span className="chips">
           <span className={`chip s-${d.status}`}>{STATUS_LABELS[d.status]}</span>
           {d.severity !== "mineure" && !isDone(d.status) && <span className={`chip v-${d.severity}`}>{SEVERITIES[d.severity]}</span>}
+          {!isDone(d.status) && d.due_date && (
+            <span className={`chip ${isLate(d) ? "late" : ""}`}>{isLate(d) ? "En retard, " : ""}avant le {shortDate(d.due_date)}</span>
+          )}
           {d.dirty && <span className="chip">Non envoyé</span>}
         </span>
       </div>
